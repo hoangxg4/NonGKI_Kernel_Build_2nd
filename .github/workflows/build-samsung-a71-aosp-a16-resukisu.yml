@@ -119,18 +119,48 @@ jobs:
         run: |
           # Only ${{ env.DEVICE_NAME }} use it.
           cd $GITHUB_WORKSPACE/device_kernel
+          
+          # 1. Update Kernel Name
           sed -i 's/CONFIG_LOCALVERSION="-Paradigm"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/sdmmagpie_defconfig
           echo "[+] Kernel name has been updated to -HaoticKernel"
+          
+          # 2. Fix KPM Feature
           sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
           sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/sdmmagpie_defconfig
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/sdmmagpie_defconfig
           sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/sdmmagpie_defconfig
+          
+          # 3. Add Docker & Container Support (Bật các mục bạn bị missing)
           cat <<EOF >> arch/arm64/configs/sdmmagpie_defconfig
+          # Debug & KPM
           CONFIG_DEBUG_KERNEL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
+
+          # Docker Core (Namespaces & Cgroups)
+          CONFIG_NAMESPACES=y
+          CONFIG_PID_NS=y
+          CONFIG_IPC_NS=y
+          CONFIG_POSIX_MQUEUE=y
+          CONFIG_CGROUP_DEVICE=y
+          CONFIG_CGROUP_PIDS=y
+          CONFIG_MEMCG=y
+          CONFIG_MEMCG_SWAP=y
+
+          # Docker Networking (Bridge, Masquerade, Netfilter)
+          CONFIG_BRIDGE=y
+          CONFIG_BRIDGE_NETFILTER=y
+          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+          CONFIG_NETFILTER_XT_MATCH_IPVS=y
+          CONFIG_IP6_NF_TARGET_MASQUERADE=y
+          CONFIG_IP6_NF_NAT=y
+          CONFIG_VETH=y
+
+          # Docker Storage (Bắt buộc để chạy container layers)
+          CONFIG_OVERLAY_FS=y
           EOF
-          echo "[+] Fixed KPM feature"
+
+          echo "[+] Docker features and KPM have been injected into defconfig"
           # Nothing
 
       - name: 🧰 Patch Kernel of Re:Kernel
