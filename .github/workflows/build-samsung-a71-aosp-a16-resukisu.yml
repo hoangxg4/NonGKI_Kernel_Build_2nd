@@ -56,7 +56,7 @@ env:
 
   KERNELSU_METHOD: "shell" # shell, manual and only.
 
-  PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches" # [your_name]/[your_patch] -> gooder123/NonGKI_Patcher
+  PATCHES_SOURCE: "nduykha/NonGKI_Kernel_Patches" # [your_name]/[your_patch] -> gooder123/NonGKI_Patcher
   PATCHES_BRANCH: "samsung_kernel" # [your_branch] -> main
 
   SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP" # Fill in your patch prefix directory here. Leave it blank if there isn't one. -> your_folder
