@@ -118,19 +118,26 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           
-          echo "[!] Hard-fixing fs/namespace.c for LineageOS Kernel..."
+          echo "[!] Applying Hard-fixes for SUSFS and KPM..."
           
-          # Chèn trực tiếp các định nghĩa vào đầu file namespace.c
+          # Fix fs/namespace.c (Xử lý FAILED Hunk #1, #9 và các biến undeclared)
           sed -i '1i #include <linux/susfs.h>\n#include <linux/kernel_stat.h>\n#include <linux/module.h>\n#include <linux/jump_label.h>\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000\n#define CL_COPY_MNT_NS 0x01\nextern int susfs_is_current_ksu_domain(void);\nextern struct static_key_false susfs_is_sdcard_android_data_not_decrypted;' fs/namespace.c
 
+          # Fix fs/open.c (Xử lý FAILED Hunk #2)
           sed -i '1i #include <linux/susfs.h>' fs/open.c
 
-          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
-          
+          # Fix fs/proc/task_mmu.c (Xử lý FAILED Hunk #1)
+          sed -i '1i #include <linux/susfs.h>' fs/proc/task_mmu.c
+
+          # Fix KPM super_access (Lỗi thread_pid trên Kernel LOS 4.14)
           if [ -f drivers/kernelsu/kpm/super_access.c ]; then
-            sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
+            echo "[+] Patching KPM super_access to use standard pids structure..."
+            sed -i 's/thread_pid/pids\[PIDTYPE_PID\].pid/g' drivers/kernelsu/kpm/super_access.c
           fi
 
+          # Config Defconfig
+          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
+          
           sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/a71_defconfig
@@ -140,18 +147,17 @@ jobs:
           CONFIG_KALLSYMS_ALL=y
           CONFIG_SUSFS=y
           EOF
-          echo "[+] Extra options applied."
+          echo "[+] All manual fixes applied successfully."
 
       - name: 🔍 Debug Kernel Source
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
-          echo "==== CHECKING NAMESPACE.C HEAD ===="
-          head -n 20 fs/namespace.c
-          echo "==== CHECKING DEFCONFIG ===="
-          grep -E "CONFIG_SUSFS|CONFIG_KALLSYMS" arch/arm64/configs/a71_defconfig
-          echo "==== CHECKING SUSFS FILES ===="
-          find fs -name "susfs.c"
-          find include -name "susfs.h"
+          echo "==== NAMESPACE.C CHECK ===="
+          head -n 15 fs/namespace.c
+          echo "==== KPM CHECK ===="
+          if [ -f drivers/kernelsu/kpm/super_access.c ]; then
+            grep "pids\[PIDTYPE_PID\].pid" drivers/kernelsu/kpm/super_access.c | head -n 5
+          fi
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
