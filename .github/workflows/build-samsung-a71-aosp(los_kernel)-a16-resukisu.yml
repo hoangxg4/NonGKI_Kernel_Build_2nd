@@ -1,4 +1,4 @@
-name: Build Samsung Galaxy A71 (LineageOS 23.2 Kernel) (KSU + SUSFS)
+name: Build Samsung Galaxy A71 (LineageOS Kernel) (ReSukiSU)
 
 on:
   workflow_call:
@@ -12,9 +12,9 @@ env:
   CUSTOM_CMDS : "CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-"
   EXTRA_CMDS : "LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf HOSTCC=clang HOSTCXX=clang++"
 
-  # SỬ DỤNG KERNEL GỐC LINEAGEOS
-  KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71.git"
-  KERNEL_BRANCH : "lineage-23.2"
+  # Cập nhật nguồn LineageOS
+  KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71"
+  KERNEL_BRANCH : "lineage-21.0" # Bạn có thể đổi thành lineage-22.1 nếu repo đã cập nhật
 
   CLANG_SOURCE : "https://github.com/nduykha/kernel_samsung_sm7150/releases/download/clang/llvm.tar.xz"
   CLANG_BRANCH : ""
@@ -22,40 +22,77 @@ env:
   GCC_GNU : true
   GCC_64_SOURCE : "https://github.com/nduykha/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.git"
   GCC_64_BRANCH : "main"
+  GCC_32_SOURCE : ""
+  GCC_32_BRANCH : ""
 
-  DEFCONFIG_NAME : "a71_defconfig"
+  DEFCONFIG_SOURCE: ""
+  DEFCONFIG_NAME : "a71_defconfig" # Cập nhật theo yêu cầu
+  DEFCONFIG_ORIGIN_IMAGE: ""
+  DEFCONFIG_FROM_BOOT: false
 
-  # KernelSU & SUSFS Settings
+  KERNELSU_SOURCE : ""
+  KERNELSU_BRANCH : ""
+
   KERNELSU_AUTO_GET : "true"
-  KERNELSU_AUTO_FORK : "resukisu" 
-  KERNELSU_METHOD: "shell"
+  KERNELSU_AUTO_FORK : "resukisu"
 
   SUSFS_ENABLE : true
   SUSFS_FIXED : true
-  SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP"
-  SUSFS_PATCH_FIXED: "susfs_fixed"
 
   AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
   AK3_BRANCH : "master"
 
-  ROM_TEXT : "los_a16_ksu_susfs"
+  BOOT_SOURCE : ""
 
-  # Patches bổ trợ
-  PATCHES_SOURCE: "nduykha/NonGKI_Kernel_Patches"
+  NEED_DTBO : false
+  NEED_SAFE_DTBO : false
+
+  ROM_TEXT : "aosp_a16"
+
+  # Other env
+  PYTHON_VERSION: "3"
+
+  PACK_METHOD: "Anykernel3"
+  PACK_KMODULES: "false"
+
+  KERNELSU_METHOD: "shell"
+
+  PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
   PATCHES_BRANCH: "samsung_kernel"
 
+  SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP"
+  SUSFS_PATCH_FIXED: "susfs_fixed"
+
   REKERNEL_ENABLE: "true"
+
   HOOK_METHOD: "syscall"
-  
+
+  KERNEL_PATCH: "false"
+
+  KPM_ENABLE: "true"
+  KPM_INLINE: "true"
+  KPM_KPATCH_NEXT: "false"
+  KPM_PATCH_SOURCE: "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/refs/heads/main/kpm/patch_linux"
+
   BASEBAND_GUARD_ENABLE: "true"
+  BASEBAND_GUARD_BOOT: "false"
+
   HIDE_STUFF: "true"
 
-  # Thiết lập Python cho script build
-  PYTHON_VERSION: "3.10"
+  GENERATE_DTB: "false"
+  GENERATE_CHIP: "qcom"
+
+  BUILD_DEBUGGER: "false"
+  SKIP_PATCH: "false"
+
+  BUILD_OTHER_CONFIG: "true"
+  MERGE_CONFIG_FILES: "a71.config"
+
+  FREE_MORE_SPACE: "false"
 
 jobs:
   build-kernel:
-    name: Build LineageOS Kernel (A71)
+    name: Build Samsung Galaxy A71 (LineageOS) (ReSukiSU)
     runs-on: ubuntu-latest
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -65,11 +102,6 @@ jobs:
     steps:
       - name: ⏰ Checkout repository
         uses: actions/checkout@v6
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: ⌛️ Compilation environment preparation
         uses: ./.github/workflows/build-env
@@ -83,44 +115,28 @@ jobs:
       - name: 🔗 Patch for no-kprobe
         uses: ./.github/workflows/patch-no-kprobe
 
-      - name: 🛠️ Manual Fix for LineageOS & SUSFS
-        run: |
-          cd $GITHUB_WORKSPACE/device_kernel
-          
-          # 1. Ép header để sửa lỗi 'undeclared' do patch bị reject
-          sed -i '1i #include <linux/susfs.h>' fs/namespace.c
-          sed -i '1i #include <linux/ksu.h>' fs/namespace.c
-          sed -i '1i #include <linux/susfs.h>' fs/open.c
-
-          # 2. Định nghĩa Flags bị thiếu trong mount.h
-          if ! grep -q "VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT" include/linux/mount.h; then
-            echo "#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000" >> include/linux/mount.h
-          fi
-
-          # 3. Định nghĩa các ID mặc định cho KernelSU
-          sed -i '/#include <linux/ksu.h>/a #define DEFAULT_KSU_MNT_ID 10000\n#define DEFAULT_KSU_MNT_GROUP_ID 20000' fs/namespace.c
-
-          # 4. Sửa lỗi PID cho Kernel 4.14 Samsung SM7150
-          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' {} +
-          if [ -d "drivers/kernelsu/kpm" ]; then
-             sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
-          fi
-
       - name: 🪛 Extra Kernel Options
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
+          # Đổi tên Kernel trong a71_defconfig
+          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
+          echo "[+] Kernel name has been updated to -HaoticKernel"
           
-          # Cập nhật tên Kernel
-          sed -i 's/CONFIG_LOCALVERSION="-lineage-23.2"/CONFIG_LOCALVERSION="-Haotic-LOS"/g' arch/arm64/configs/a71_defconfig
+          # Fix KPM cho cấu trúc thread_pid
+          if [ -f drivers/kernelsu/kpm/super_access.c ]; then
+            sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
+          fi
           
-          # Chỉ giữ lại các config tối thiểu cho KSU/SUSFS
+          # Cập nhật Config cho a71_defconfig
+          sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
-          
+          sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/a71_defconfig
           cat <<EOF >> arch/arm64/configs/a71_defconfig
+          CONFIG_DEBUG_KERNEL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
-          CONFIG_OVERLAY_FS=y
           EOF
+          echo "[+] Fixed KPM feature in a71_defconfig"
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
