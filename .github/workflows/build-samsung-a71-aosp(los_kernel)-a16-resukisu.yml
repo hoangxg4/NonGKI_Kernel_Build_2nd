@@ -120,19 +120,19 @@ jobs:
           cd $GITHUB_WORKSPACE/device_kernel
           
           # 1. Update Kernel Name
-          sed -i 's/CONFIG_LOCALVERSION="-Paradigm"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/sdmmagpie_defconfig
+          sed -i 's/CONFIG_LOCALVERSION="-lineage-23.2"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
           
           # 2. Fix KPM Feature
           sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
-          sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/sdmmagpie_defconfig
-          sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/sdmmagpie_defconfig
-          sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/sdmmagpie_defconfig
+          sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/a71_defconfig
+          sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
+          sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/a71_defconfig
 
           # 3. Force Enable DEVTMPFS & Full Docker Suite
           # Sử dụng sed để đảm bảo không bị ghi đè bởi các file config khác
-          sed -i '/CONFIG_DEVTMPFS/d' arch/arm64/configs/sdmmagpie_defconfig
+          sed -i '/CONFIG_DEVTMPFS/d' arch/arm64/configs/a71_defconfig
           
-          cat <<EOF >> arch/arm64/configs/sdmmagpie_defconfig
+          cat <<EOF >> arch/arm64/configs/a71_defconfig
           # Debug & KPM
           CONFIG_DEBUG_KERNEL=y
           CONFIG_KALLSYMS=y
