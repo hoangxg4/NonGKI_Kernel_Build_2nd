@@ -179,6 +179,10 @@ jobs:
           CONFIG_IP_NF_TARGET_MASQUERADE=y
           CONFIG_IP6_NF_TARGET_MASQUERADE=y
           CONFIG_IP6_NF_NAT=y
+          CONFIG_ANDROID_PARANOID_NETWORK=n
+          CONFIG_IP_NF_NAT=y
+          CONFIG_NF_NAT_IPV4=y
+          CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
 
           # Storage & File Systems
           CONFIG_OVERLAY_FS=y
