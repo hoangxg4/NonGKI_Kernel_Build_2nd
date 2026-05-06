@@ -4,36 +4,51 @@ on:
   workflow_dispatch:
 
 env:
+  # Các biến hệ thống bắt buộc (Fix lỗi Python version)
+  PYTHON_VERSION: "3"
   DEVICE_NAME : "samsung_a71"
   DEVICE_CODENAME : "a71"
+  
+  # Nguồn Kernel và Nhánh
   KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71"
-  KERNEL_BRANCH : "lineage-21.0" # Nhánh ổn định nhất hiện tại
+  KERNEL_BRANCH : "lineage-21.0"
   DEFCONFIG_NAME : "a71_defconfig"
   
-  # Giữ nguyên các cấu hình Tools của bạn
+  # Trình biên dịch và Công cụ
   CUSTOM_CMDS : "CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-"
   EXTRA_CMDS : "LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf HOSTCC=clang HOSTCXX=clang++"
   CLANG_SOURCE : "https://github.com/nduykha/kernel_samsung_sm7150/releases/download/clang/llvm.tar.xz"
+  CLANG_BRANCH : ""
   GCC_GNU : true
   GCC_64_SOURCE : "https://github.com/nduykha/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.git"
   GCC_64_BRANCH : "main"
+  GCC_32_SOURCE : ""
+  GCC_32_BRANCH : ""
 
-  # Cấu hình Root & SUSFS
+  # Root và Patch (Bắt buộc giữ để dùng SUSFS)
   KERNELSU_AUTO_GET : "true"
   KERNELSU_AUTO_FORK : "resukisu"
   SUSFS_ENABLE : true
   SUSFS_FIXED : true
   REKERNEL_ENABLE: "true"
-  
-  # Các thông số Patch
+  HOOK_METHOD: "syscall"
+  KERNEL_PATCH: "false"
+
+  # Nguồn Patch SUSFS
   PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
   PATCHES_BRANCH: "samsung_kernel"
   SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP"
   SUSFS_PATCH_FIXED: "susfs_fixed"
 
+  # Đóng gói
   AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
   AK3_BRANCH : "master"
+  PACK_METHOD: "Anykernel3"
+  PACK_KMODULES: "false"
   BUILD_OTHER_CONFIG: "false"
+  GENERATE_DTB: "false"
+  BUILD_DEBUGGER: "false"
+  SKIP_PATCH: "false"
 
 jobs:
   build-kernel:
@@ -43,7 +58,7 @@ jobs:
       - name: ⏰ Checkout
         uses: actions/checkout@v6
 
-      - name: ⌛️ Env Prep
+      - name: ⌛️ Env Prep (Sửa lỗi Python version)
         uses: ./.github/workflows/build-env
 
       - name: ⚙️ Tools Ready
@@ -60,11 +75,10 @@ jobs:
           cd $GITHUB_WORKSPACE/device_kernel
           
           echo "[!] Fixing fs/namespace.c for LineageOS..."
-          # Chèn các định nghĩa bị thiếu vào đầu file namespace.c nếu chưa có
+          # Chèn include vào đầu file namespace.c
           sed -i '/#include <linux\/mount.h>/a #include <linux/susfs.h>\n#include <linux/kernel_stat.h>' fs/namespace.c
           
-          # Sửa lỗi thiếu định nghĩa biến trong namespace.c bằng cách ép thêm vào header mount.h
-          # Đây là nơi quan trọng nhất để fix lỗi "undeclared identifier"
+          # Ép định nghĩa các biến SUSFS bị thiếu vào mount.h
           sed -i '/struct vfsmap;/a extern int susfs_is_current_ksu_domain(void);\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000' include/linux/mount.h
 
           echo "[!] Fixing fs/open.c..."
