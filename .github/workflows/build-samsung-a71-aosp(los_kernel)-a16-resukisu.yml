@@ -1,4 +1,4 @@
-name: Build Samsung Galaxy A71 (AOSP A16) (ReSukiSU)
+name: Build Samsung Galaxy A71 (Lineage-A16) (ReSukiSU)
 
 on:
   workflow_call:
@@ -91,7 +91,7 @@ env:
 
 jobs:
   build-kernel:
-    name: Build Samsung Galaxy A71 (AOSP A16) (ReSukiSU)
+    name: Build Samsung Galaxy A71 (Lineage-A16) (ReSukiSU)
     runs-on: ubuntu-latest
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -118,22 +118,28 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           
-          # Fix lỗi định nghĩa biến SUSFS bị thiếu do Patch FAILED trên LineageOS
-          echo "[!] Sửa lỗi fs/namespace.c cho LineageOS..."
-          sed -i '/#include <linux\/mount.h>/a #include <linux/susfs.h>\n#include <linux/kernel_stat.h>' fs/namespace.c
+          # Fix 19 lỗi undeclared identifier trong fs/namespace.c
+          echo "[!] Manual fixing fs/namespace.c and mount.h for LineageOS..."
           
-          # Ép định nghĩa vào mount.h để xử lý 19 lỗi "undeclared identifier"
+          sed -i '/#include <linux\/mount.h>/a #include <linux/susfs.h>\n#include <linux/kernel_stat.h>\n#include <linux/module.h>' fs/namespace.c
+          
           if [ -f include/linux/mount.h ]; then
-            sed -i '/struct vfsmap;/a extern int susfs_is_current_ksu_domain(void);\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000' include/linux/mount.h
+            sed -i '/struct vfsmap;/a \
+          extern int susfs_is_current_ksu_domain(void);\
+          extern struct static_key_false susfs_is_sdcard_android_data_not_decrypted;\
+          #define DEFAULT_KSU_MNT_ID 1000000\
+          #define DEFAULT_KSU_MNT_GROUP_ID 1000000\
+          #define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000' include/linux/mount.h
           fi
 
-          # Sửa lỗi open.c (Hunk #2 FAILED)
+          if ! grep -q "CL_COPY_MNT_NS" fs/namespace.c; then
+            sed -i '/#define.*MNT_NS_INTERNAL/a #define CL_COPY_MNT_NS 0x01' fs/namespace.c
+          fi
+
           sed -i '/#include <linux\/falloc.h>/a #include <linux/susfs.h>' fs/open.c
 
-          # Cập nhật Local version và Config cho a71_defconfig
           sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
           
-          # Sửa lỗi KPM feature
           if [ -f drivers/kernelsu/kpm/super_access.c ]; then
             sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
           fi
@@ -147,7 +153,7 @@ jobs:
           CONFIG_KALLSYMS_ALL=y
           CONFIG_SUSFS=y
           EOF
-          echo "[+] Extra options applied successfully."
+          echo "[+] Extra options and LineageOS fixes applied."
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
