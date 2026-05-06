@@ -1,67 +1,111 @@
-name: Build Samsung Galaxy A71 (LineageOS + SUSFS Fix)
+name: Build Samsung Galaxy A71 (AOSP A16) (ReSukiSU)
 
 on:
+  workflow_call:
   workflow_dispatch:
 
 env:
-  # Các biến hệ thống bắt buộc (Fix lỗi Python version)
-  PYTHON_VERSION: "3"
+  # Device env
   DEVICE_NAME : "samsung_a71"
   DEVICE_CODENAME : "a71"
-  
-  # Nguồn Kernel và Nhánh
-  KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71"
-  KERNEL_BRANCH : "lineage-21.0"
-  DEFCONFIG_NAME : "a71_defconfig"
-  
-  # Trình biên dịch và Công cụ
+
   CUSTOM_CMDS : "CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-"
   EXTRA_CMDS : "LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf HOSTCC=clang HOSTCXX=clang++"
+
+  KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71"
+  KERNEL_BRANCH : "lineage-23.2"
+
   CLANG_SOURCE : "https://github.com/nduykha/kernel_samsung_sm7150/releases/download/clang/llvm.tar.xz"
   CLANG_BRANCH : ""
+
   GCC_GNU : true
   GCC_64_SOURCE : "https://github.com/nduykha/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.git"
   GCC_64_BRANCH : "main"
   GCC_32_SOURCE : ""
   GCC_32_BRANCH : ""
 
-  # Root và Patch (Bắt buộc giữ để dùng SUSFS)
+  DEFCONFIG_SOURCE: ""
+  DEFCONFIG_NAME : "a71_defconfig"
+  DEFCONFIG_ORIGIN_IMAGE: ""
+  DEFCONFIG_FROM_BOOT: false
+
+  KERNELSU_SOURCE : ""
+  KERNELSU_BRANCH : ""
+
   KERNELSU_AUTO_GET : "true"
   KERNELSU_AUTO_FORK : "resukisu"
+
   SUSFS_ENABLE : true
   SUSFS_FIXED : true
-  REKERNEL_ENABLE: "true"
-  HOOK_METHOD: "syscall"
-  KERNEL_PATCH: "false"
 
-  # Nguồn Patch SUSFS
+  AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
+  AK3_BRANCH : "master"
+
+  BOOT_SOURCE : ""
+
+  NEED_DTBO : false
+  NEED_SAFE_DTBO : false
+
+  ROM_TEXT : "aosp_a16"
+
+  # Other env
+  PYTHON_VERSION: "3"
+
+  PACK_METHOD: "Anykernel3"
+  PACK_KMODULES: "false"
+
+  KERNELSU_METHOD: "shell"
+
   PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
   PATCHES_BRANCH: "samsung_kernel"
+
   SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP"
   SUSFS_PATCH_FIXED: "susfs_fixed"
 
-  # Đóng gói
-  AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
-  AK3_BRANCH : "master"
-  PACK_METHOD: "Anykernel3"
-  PACK_KMODULES: "false"
-  BUILD_OTHER_CONFIG: "false"
+  REKERNEL_ENABLE: "true"
+
+  HOOK_METHOD: "syscall"
+
+  KERNEL_PATCH: "false"
+
+  KPM_ENABLE: "true"
+  KPM_INLINE: "true"
+  KPM_KPATCH_NEXT: "false"
+  KPM_PATCH_SOURCE: "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/refs/heads/main/kpm/patch_linux"
+
+  BASEBAND_GUARD_ENABLE: "true"
+  BASEBAND_GUARD_BOOT: "false"
+
+  HIDE_STUFF: "true"
+
   GENERATE_DTB: "false"
+  GENERATE_CHIP: "qcom"
+
   BUILD_DEBUGGER: "false"
   SKIP_PATCH: "false"
 
+  BUILD_OTHER_CONFIG: "false"
+  MERGE_CONFIG_FILES: ""
+
+  FREE_MORE_SPACE: "false"
+
 jobs:
   build-kernel:
-    name: Build A71 Kernel with SUSFS
+    name: Build Samsung Galaxy A71 (AOSP A16) (ReSukiSU)
     runs-on: ubuntu-latest
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+
     steps:
-      - name: ⏰ Checkout
+      - name: ⏰ Checkout repository
         uses: actions/checkout@v6
 
-      - name: ⌛️ Env Prep (Sửa lỗi Python version)
+      - name: ⌛️ Compilation environment preparation
         uses: ./.github/workflows/build-env
 
-      - name: ⚙️ Tools Ready
+      - name: ⚙️ Get neccssary tools
         uses: ./.github/workflows/build-ready
 
       - name: 🪝 Patch Kernel of SUSFS
@@ -70,30 +114,49 @@ jobs:
       - name: 🔗 Patch for no-kprobe
         uses: ./.github/workflows/patch-no-kprobe
 
-      - name: 🪛 Fix SUSFS Compilation Errors
+      - name: 🪛 Extra Kernel Options
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           
-          echo "[!] Fixing fs/namespace.c for LineageOS..."
-          # Chèn include vào đầu file namespace.c
+          # Fix lỗi định nghĩa biến SUSFS bị thiếu do Patch FAILED trên LineageOS
+          echo "[!] Sửa lỗi fs/namespace.c cho LineageOS..."
           sed -i '/#include <linux\/mount.h>/a #include <linux/susfs.h>\n#include <linux/kernel_stat.h>' fs/namespace.c
           
-          # Ép định nghĩa các biến SUSFS bị thiếu vào mount.h
-          sed -i '/struct vfsmap;/a extern int susfs_is_current_ksu_domain(void);\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000' include/linux/mount.h
+          # Ép định nghĩa vào mount.h để xử lý 19 lỗi "undeclared identifier"
+          if [ -f include/linux/mount.h ]; then
+            sed -i '/struct vfsmap;/a extern int susfs_is_current_ksu_domain(void);\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000' include/linux/mount.h
+          fi
 
-          echo "[!] Fixing fs/open.c..."
+          # Sửa lỗi open.c (Hunk #2 FAILED)
           sed -i '/#include <linux\/falloc.h>/a #include <linux/susfs.h>' fs/open.c
 
-          echo "[!] Updating Defconfig..."
-          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-Haotic-SUSFS"/g' arch/arm64/configs/a71_defconfig
-          {
-            echo "CONFIG_KALLSYMS=y"
-            echo "CONFIG_KALLSYMS_ALL=y"
-            echo "CONFIG_SUSFS=y"
-          } >> arch/arm64/configs/a71_defconfig
+          # Cập nhật Local version và Config cho a71_defconfig
+          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-HaoticKernel"/g' arch/arm64/configs/a71_defconfig
+          
+          # Sửa lỗi KPM feature
+          if [ -f drivers/kernelsu/kpm/super_access.c ]; then
+            sed -i 's/pids\[PIDTYPE_PID\].pid/thread_pid/g' drivers/kernelsu/kpm/super_access.c
+          fi
+
+          sed -i '/CONFIG_DEBUG_KERNEL/d' arch/arm64/configs/a71_defconfig
+          sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
+          sed -i '/CONFIG_KALLSYMS_ALL/d' arch/arm64/configs/a71_defconfig
+          cat <<EOF >> arch/arm64/configs/a71_defconfig
+          CONFIG_DEBUG_KERNEL=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_SUSFS=y
+          EOF
+          echo "[+] Extra options applied successfully."
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
+
+      - name: 🔒 Patch Kernel of Baseband Guard
+        uses: ./.github/workflows/patch-baseband-guard
+
+      - name: 🔧 Patch Hide Stuff
+        uses: ./.github/workflows/patch-hide-stuff
 
       - name: 🚀 Build Process
         uses: ./.github/workflows/build-process
