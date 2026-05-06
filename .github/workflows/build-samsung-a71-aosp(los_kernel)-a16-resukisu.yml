@@ -50,6 +50,9 @@ env:
   BASEBAND_GUARD_ENABLE: "true"
   HIDE_STUFF: "true"
 
+  # Thiết lập Python cho script build
+  PYTHON_VERSION: "3.10"
+
 jobs:
   build-kernel:
     name: Build LineageOS Kernel (A71)
@@ -62,6 +65,11 @@ jobs:
     steps:
       - name: ⏰ Checkout repository
         uses: actions/checkout@v6
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: ⌛️ Compilation environment preparation
         uses: ./.github/workflows/build-env
@@ -105,7 +113,7 @@ jobs:
           # Cập nhật tên Kernel
           sed -i 's/CONFIG_LOCALVERSION="-lineage-23.2"/CONFIG_LOCALVERSION="-Haotic-LOS"/g' arch/arm64/configs/a71_defconfig
           
-          # Chỉ giữ lại các config tối thiểu để KSU/SUSFS hoạt động
+          # Chỉ giữ lại các config tối thiểu cho KSU/SUSFS
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
           
           cat <<EOF >> arch/arm64/configs/a71_defconfig
