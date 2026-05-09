@@ -5,28 +5,64 @@ on:
   workflow_dispatch:
 
 env:
+  # Các biến hệ thống bắt buộc (Fix lỗi "Need packing method" và Python version)
   PYTHON_VERSION: "3"
+  PACK_METHOD: "Anykernel3"
   DEVICE_NAME : "samsung_a71"
   DEVICE_CODENAME : "a71"
+  
+  # Nguồn Kernel LineageOS 23.2
   KERNEL_SOURCE : "https://github.com/LineageOS/android_kernel_samsung_a71"
   KERNEL_BRANCH : "lineage-23.2"
   DEFCONFIG_NAME : "a71_defconfig"
+  
+  # Trình biên dịch và Công cụ
   CUSTOM_CMDS : "CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-"
   EXTRA_CMDS : "LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf HOSTCC=clang HOSTCXX=clang++"
   CLANG_SOURCE : "https://github.com/nduykha/kernel_samsung_sm7150/releases/download/clang/llvm.tar.xz"
+  CLANG_BRANCH : ""
   GCC_GNU : true
   GCC_64_SOURCE : "https://github.com/nduykha/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.git"
   GCC_64_BRANCH : "main"
+  GCC_32_SOURCE : ""
+  GCC_32_BRANCH : ""
+
+  # Root và Patch (SUSFS + KernelSU)
   KERNELSU_AUTO_GET : "true"
   KERNELSU_AUTO_FORK : "resukisu"
   SUSFS_ENABLE : true
   SUSFS_FIXED : true
-  ROM_TEXT : "Lineage-A16-Docker-Final"
+  REKERNEL_ENABLE: "true"
+  HOOK_METHOD: "syscall"
+  KERNEL_PATCH: "false"
+
+  # Nguồn Patch SUSFS
+  PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
+  PATCHES_BRANCH: "samsung_kernel"
+  SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu/AOSP"
+  SUSFS_PATCH_FIXED: "susfs_fixed"
+
+  # Các biến đóng gói bổ sung
+  AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
+  AK3_BRANCH : "master"
+  PACK_KMODULES: "false"
+  GENERATE_DTB: "false"
+  BUILD_DEBUGGER: "false"
+  SKIP_PATCH: "false"
+  BUILD_OTHER_CONFIG: "false"
+  
+  # Tên file zip đầu ra
+  ROM_TEXT : "Lineage-A16-Docker-ReSukiSU"
 
 jobs:
   build-kernel:
     name: Build Samsung Galaxy A71 (Lineage-Docker) (ReSukiSU)
     runs-on: ubuntu-latest
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+
     steps:
       - name: ⏰ Checkout repository
         uses: actions/checkout@v6
@@ -47,53 +83,79 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           
-          # --- FIX VFS DEADLOCK (FIX 100% CPU KHI CHẠY DEBIAN) ---
-          # Ngăn chặn vòng lặp vô hạn khi Systemd cố mount trong Namespace
+          echo "[!] Applying Hard-fixes for SUSFS, Docker and VFS Deadlock..."
+          
+          # 1. FIX VFS DEADLOCK (LỖI 100% CPU KHI CHẠY DEBIAN)
           sed -i 's/if (mnt->mnt.mnt_flags & MNT_LOCKED)/if ((mnt->mnt.mnt_flags \& MNT_LOCKED) \&\& !(current->flags \& PF_KTHREAD))/g' fs/namespace.c
 
-          # --- FIX OVERLAY2 PERMISSION (CHO PHÉP DOCKER MOUNT TRÊN /DATA) ---
-          # Bỏ qua kiểm tra user_ns để OverlayFS chạy được với quyền root của Docker
+          # 2. FIX OVERLAY2 PERMISSION (CHO PHÉP DOCKER MOUNT TRÊN /DATA)
           if [ -f fs/overlayfs/super.c ]; then
             sed -i 's/if (sb->s_user_ns != \&init_user_ns)/if (false \&\& sb->s_user_ns != \&init_user_ns)/g' fs/overlayfs/super.c
           fi
 
-          # --- FIX LINEAGEOS HEADERS & KPM ---
+          # 3. FIX NAMESPACE & HEADERS CHO LINEAGEOS
           sed -i '1i #include <linux/susfs.h>\n#include <linux/kernel_stat.h>\n#include <linux/module.h>\n#include <linux/jump_label.h>\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000\n#define CL_COPY_MNT_NS 0x01\nextern int susfs_is_current_ksu_domain(void);\nextern struct static_key_false susfs_is_sdcard_android_data_not_decrypted;' fs/namespace.c
           sed -i '1i #include <linux/susfs.h>' fs/open.c
           sed -i '1i #include <linux/susfs.h>' fs/proc/task_mmu.c
 
+          # 4. UPDATE NAME & FIX KPM PID CHO LINEAGE
+          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-Haotic-Docker-RSK"/g' arch/arm64/configs/a71_defconfig
           if [ -f drivers/kernelsu/kpm/super_access.c ]; then
             sed -i 's/thread_pid/pids\[PIDTYPE_PID\].pid/g' drivers/kernelsu/kpm/super_access.c
           fi
 
-          # --- INJECT DOCKER CONFIGS ---
-          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-Haotic-Docker"/g' arch/arm64/configs/a71_defconfig
+          # 5. INJECT DOCKER & SUSFS CONFIGS
           sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' arch/arm64/configs/a71_defconfig
+          sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/a71_defconfig
           
           cat <<EOF >> arch/arm64/configs/a71_defconfig
           # Docker & Container Support
           CONFIG_NAMESPACES=y
           CONFIG_USER_NS=y
           CONFIG_PID_NS=y
+          CONFIG_IPC_NS=y
+          CONFIG_UTS_NS=y
+          CONFIG_POSIX_MQUEUE=y
+          CONFIG_DEVTMPFS=y
+          CONFIG_DEVTMPFS_MOUNT=y
           CONFIG_OVERLAY_FS=y
           CONFIG_ANDROID_PARANOID_NETWORK=n
           CONFIG_CGROUPS=y
           CONFIG_MEMCG=y
           CONFIG_CGROUP_PIDS=y
           CONFIG_CGROUP_DEVICE=y
+          CONFIG_CPUSETS=y
           CONFIG_BLK_CGROUP=y
           CONFIG_IP_VS=y
           CONFIG_VETH=y
           CONFIG_BRIDGE=y
+          CONFIG_BRIDGE_NETFILTER=y
+          
           # Debug & KSU
           CONFIG_DEBUG_KERNEL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
           CONFIG_SUSFS=y
           EOF
+          
+          echo "[+] All manual fixes and Docker configs applied."
+
+      - name: 🔍 Debug Kernel Source
+        run: |
+          cd $GITHUB_WORKSPACE/device_kernel
+          echo "==== NAMESPACE.C CHECK ===="
+          head -n 15 fs/namespace.c
+          echo "==== DOCKER CONFIG CHECK ===="
+          grep -E "CONFIG_NAMESPACES|CONFIG_OVERLAY_FS|CONFIG_CGROUPS" arch/arm64/configs/a71_defconfig
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
+
+      - name: 🔒 Patch Kernel of Baseband Guard
+        uses: ./.github/workflows/patch-baseband-guard
+
+      - name: 🔧 Patch Hide Stuff
+        uses: ./.github/workflows/patch-hide-stuff
 
       - name: 🚀 Build Process
         uses: ./.github/workflows/build-process
