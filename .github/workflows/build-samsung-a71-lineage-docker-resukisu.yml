@@ -39,7 +39,7 @@ env:
   AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
   AK3_BRANCH : "master"
 
-  # Tên file zip sau khi build xong
+  # Tên file zip sau khi build xong sẽ có chữ Docker-ReSukiSU
   ROM_TEXT : "Lineage-A16-Docker-ReSukiSU"
 
   # Other env
@@ -101,66 +101,50 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
 
-          echo "[!] Applying Smart Deadlock Shield & Docker Optimization..."
-
-          # 1. SMART DEADLOCK SHIELD (Fix CPU 100% khi chạy Systemd trong Droidspaces)
-          # Bản vá này phá vỡ vòng lặp Mount Lock khi Systemd/Docker thực hiện mount namespace.
-          # PF_KTHREAD check giúp phân biệt tiến trình hệ thống và tiến trình container.
-          if [ -f fs/namespace.c ]; then
-            sed -i 's/if (mnt->mnt.mnt_flags & MNT_LOCKED)/if ((mnt->mnt.mnt_flags \& MNT_LOCKED) \&\& !(current->flags \& PF_KTHREAD) \&\& !susfs_is_current_ksu_domain())/g' fs/namespace.c
-          fi
-
-          # 2. CGROUP V2 UNLOCK (Cần thiết cho Systemd khởi động dịch vụ)
-          # Một số bản kernel chặn ghi vào default cgroup từ namespace, lệnh này gỡ bỏ giới hạn đó.
-          if [ -f kernel/cgroup/cgroup.c ]; then
-            sed -i 's/if (cgroup_on_dfl(cgrp))/if (false)/g' kernel/cgroup/cgroup.c
-          fi
-
-          # 3. OVERLAY2 PERMISSION FIX (Cho phép mount container trực tiếp trên /data)
+          FIX OVERLAY2 PERMISSION (Cho phép Docker Daemon chạy Overlay2 trên Android /data)
+          # Ép Kernel bỏ qua kiểm tra s_user_ns để OverlayFS không bị lỗi Permission denied
           if [ -f fs/overlayfs/super.c ]; then
             sed -i 's/if (sb->s_user_ns != \&init_user_ns)/if (false \&\& sb->s_user_ns != \&init_user_ns)/g' fs/overlayfs/super.c
           fi
           
           # --- SUSFS HARD-FIX CHO LINEAGEOS ---
-          # Chèn Header vào dòng đầu tiên để tránh lỗi biên dịch do Patch SUSFS Failed.
           sed -i '1i #include <linux/susfs.h>\n#include <linux/kernel_stat.h>\n#include <linux/module.h>\n#include <linux/jump_label.h>\n#define DEFAULT_KSU_MNT_ID 1000000\n#define DEFAULT_KSU_MNT_GROUP_ID 1000000\n#define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x01000000\n#define CL_COPY_MNT_NS 0x01\nextern int susfs_is_current_ksu_domain(void);\nextern struct static_key_false susfs_is_sdcard_android_data_not_decrypted;' fs/namespace.c
           sed -i '1i #include <linux/susfs.h>' fs/open.c
           sed -i '1i #include <linux/susfs.h>' fs/proc/task_mmu.c
 
           # --- UPDATE KERNEL NAME & KPM FIX CHO LINEAGE ---
-          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-Haotic-SmartShield"/g' arch/arm64/configs/a71_defconfig
+          sed -i 's/CONFIG_LOCALVERSION="-.*"/CONFIG_LOCALVERSION="-Haotic-Docker-RSK"/g' arch/arm64/configs/a71_defconfig
           if [ -f drivers/kernelsu/kpm/super_access.c ]; then
             sed -i 's/thread_pid/pids\[PIDTYPE_PID\].pid/g' drivers/kernelsu/kpm/super_access.c
           fi
           
-          # --- INJECT DOCKER & SYSTEMD CORE CONFIGS ---
-          # Xóa các config cũ để tránh bị ghi đè sai.
+          # --- INJECT DOCKER SUPPORT ---
           sed -i '/CONFIG_DEVTMPFS/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_NAMESPACES/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_CGROUPS/d' arch/arm64/configs/a71_defconfig
           sed -i '/CONFIG_OVERLAY_FS/d' arch/arm64/configs/a71_defconfig
 
           cat <<EOF >> arch/arm64/configs/a71_defconfig
-          # Debug & Root
+          # Debug & KPM
           CONFIG_DEBUG_KERNEL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
           CONFIG_SUSFS=y
 
-          # Docker Core - Devtmpfs & Namespaces
+          # Docker - Devtmpfs
           CONFIG_DEVTMPFS=y
           CONFIG_DEVTMPFS_MOUNT=y
+
+          # Docker - Namespaces
           CONFIG_NAMESPACES=y
-          CONFIG_USER_NS=y
           CONFIG_PID_NS=y
           CONFIG_IPC_NS=y
           CONFIG_UTS_NS=y
           CONFIG_POSIX_MQUEUE=y
+          CONFIG_USER_NS=y
 
-          # Docker - Cgroups V1/V2
+          # Docker - Cgroups
           CONFIG_CGROUPS=y
-          CONFIG_MEMCG=y
-          CONFIG_MEMCG_SWAP=y
           CONFIG_CGROUP_FREEZER=y
           CONFIG_CGROUP_PIDS=y
           CONFIG_CGROUP_DEVICE=y
@@ -168,6 +152,7 @@ jobs:
           CONFIG_PROC_PID_CPUSET=y
           CONFIG_CGROUP_CPUACCT=y
           CONFIG_PAGE_COUNTER=y
+          CONFIG_MEMCG=y
           CONFIG_CGROUP_SCHED=y
           CONFIG_FAIR_GROUP_SCHED=y
           CONFIG_CFS_BANDWIDTH=y
@@ -176,6 +161,8 @@ jobs:
 
           # Docker - Networking
           CONFIG_IP_VS=y
+          CONFIG_IP_VS_PROTO_TCP=y
+          CONFIG_IP_VS_PROTO_UDP=y
           CONFIG_IP_VS_RR=y
           CONFIG_IP_VS_NFCT=y
           CONFIG_NETFILTER_XT_MATCH_IPVS=y
@@ -183,28 +170,26 @@ jobs:
           CONFIG_BRIDGE_NETFILTER=y
           CONFIG_VETH=y
           CONFIG_IP_NF_TARGET_MASQUERADE=y
+          CONFIG_IP6_NF_TARGET_MASQUERADE=y
+          CONFIG_IP6_NF_NAT=y
           CONFIG_ANDROID_PARANOID_NETWORK=n
           CONFIG_IP_NF_NAT=y
           CONFIG_NF_NAT_IPV4=y
           CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
 
-          # Docker - Filesystem
+          # Docker - FS
           CONFIG_OVERLAY_FS=y
-          CONFIG_OVERLAY_FS_REDIRECT_DIR=y
-          CONFIG_OVERLAY_FS_INDEX=y
           CONFIG_EXT4_FS_POSIX_ACL=y
           CONFIG_EXT4_FS_SECURITY=y
           EOF
 
-          echo "[+] Smart Shield and Docker Suite injected successfully."
+          echo "[+] Docker features and SUSFS hard-fixes applied."
 
       - name: 🔍 Debug Kernel Source
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
-          echo "==== SMART SHIELD CHECK ===="
-          grep "PF_KTHREAD" fs/namespace.c
           echo "==== DOCKER CONFIG CHECK ===="
-          grep -E "CONFIG_NAMESPACES|CONFIG_OVERLAY_FS|CONFIG_CGROUPS|CONFIG_USER_NS" arch/arm64/configs/a71_defconfig
+          grep -E "CONFIG_NAMESPACES|CONFIG_OVERLAY_FS|CONFIG_CGROUPS|CONFIG_DEVTMPFS" arch/arm64/configs/a71_defconfig
 
       - name: 🧰 Patch Kernel of Re:Kernel
         uses: ./.github/workflows/patch-rekernel
