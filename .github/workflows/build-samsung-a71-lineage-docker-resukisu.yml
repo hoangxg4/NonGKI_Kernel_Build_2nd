@@ -101,7 +101,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
 
-          FIX OVERLAY2 PERMISSION (Cho phép Docker Daemon chạy Overlay2 trên Android /data)
+          # FIX OVERLAY2 PERMISSION (Cho phép Docker Daemon chạy Overlay2 trên Android /data)
           # Ép Kernel bỏ qua kiểm tra s_user_ns để OverlayFS không bị lỗi Permission denied
           if [ -f fs/overlayfs/super.c ]; then
             sed -i 's/if (sb->s_user_ns != \&init_user_ns)/if (false \&\& sb->s_user_ns != \&init_user_ns)/g' fs/overlayfs/super.c
