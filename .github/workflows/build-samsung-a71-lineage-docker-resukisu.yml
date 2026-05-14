@@ -50,7 +50,7 @@ env:
 
   PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
   PATCHES_BRANCH: "samsung_kernel"
-  SUSFS_FOLDER_FIXED: "a71_sm7150/resukisu"
+  SUSFS_FOLDER_FIXED: "a71_sm7150"
   SUSFS_PATCH_FIXED: "susfs_fixed"
 
   REKERNEL_ENABLE: "true"
